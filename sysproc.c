@@ -89,3 +89,81 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+static pte_t *
+findPte(pde_t *pgdir, const void *va)
+{
+  pde_t *pde;
+  pte_t *pgtab;
+
+  pde = &pgdir[PDX(va)];
+  if(*pde & PTE_P){
+    pgtab = (pte_t*)P2V(PTE_ADDR(*pde));
+    return &pgtab[PTX(va)];
+  }
+  return 0;  
+}
+
+int
+sys_mprotect(void) {
+  void *addr;
+  int len;
+  if (argint(0, (int *)(&addr)) < 0 || argint(1, &len) < 0) {
+    return -1;
+  }
+
+  if (addr != (void *)PGROUNDDOWN((uint)addr) || len <= 0) {
+    return -1;
+  }
+
+  char *a, *last;
+  pte_t *pte;
+
+  pde_t* pgdir = myproc()->pgdir;
+
+  a = (char*)addr;
+  last = (char*)PGROUNDDOWN(((uint)addr) + len - 1);
+  for(;;){
+    if((pte = findPte(pgdir, a)) == 0)
+      return -1; // not mapped
+    if((*pte & PTE_P) == 0)
+      return -1;
+    *pte = *pte & (~PTE_W);
+    if(a == last)
+      break;
+    a += PGSIZE;
+  }
+  lcr3(V2P(pgdir));
+  return 0;
+}
+
+int
+sys_munprotect(void) {
+  void *addr;
+  int len;
+  if (argint(0, (int *)(&addr)) < 0 || argint(1, &len) < 0) {
+    return -1;
+  }
+  if (addr != (void *)PGROUNDDOWN((uint)addr) || len <= 0) {
+    return -1;
+  }
+  char *a, *last;
+  pte_t *pte;
+
+  pde_t* pgdir = myproc()->pgdir;
+
+  a = (char*)addr;
+  last = (char*)PGROUNDDOWN(((uint)addr) + len - 1);
+  for(;;){
+    if((pte = findPte(pgdir, a)) == 0)
+      return -1;
+    if((*pte & PTE_P) == 0)
+      return -1; // not mapped
+    *pte = *pte | (PTE_W);
+    if(a == last)
+      break;
+    a += PGSIZE;
+  }
+  lcr3(V2P(pgdir));
+  return 0;
+}
